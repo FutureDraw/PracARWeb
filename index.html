@@ -35,24 +35,27 @@
 
   <div id="notice">Открой по HTTPS на поддерживаемом устройстве (Chrome на Android). Нажми «Enter AR».</div>
 
-  <a-scene renderer="logarithmicDepthBuffer: true;" embedded vr-mode-ui="enabled: false">
+  <a-scene
+    embedded
+    vr-mode-ui="enabled: false"
+    renderer="logarithmicDepthBuffer: true"
+    xr="type: ar; referenceSpace: local-floor; optionalFeatures: hit-test, dom-overlay; domOverlay: #ui">
+
     <a-assets>
-      <!-- Положи сюда свою model.glb -->
       <a-asset-item id="modelGLB" src="./assets/model.glb"></a-asset-item>
     </a-assets>
 
-    <!-- Ретикл — покажем место, куда можно вставить модель -->
+    <!-- Ретикл -->
     <a-entity id="reticle" visible="false">
       <a-ring id="reticleRing" radius-inner="0.04" radius-outer="0.06" rotation="-90 0 0" material="color: #0ff; opacity: 0.9"></a-ring>
       <a-cylinder height="0.001" radius="0.02" rotation="-90 0 0" material="color:#0ff; opacity:0.2"></a-cylinder>
     </a-entity>
 
-    <!-- Сцена камера (не AR пока) -->
-    <a-entity id="camera" camera look-controls position="0 1.6 0"></a-entity>
+    <!-- Камера AR / 3D -->
+    <a-entity camera position="0 1.6 0"></a-entity>
   </a-scene>
 
   <script>
-  // ----- Переменные -----
   const enterBtn = document.getElementById('enter-ar');
   const placeBtn = document.getElementById('place');
   const rotateBtn = document.getElementById('rotate');
@@ -64,192 +67,122 @@
   const scene = document.querySelector('a-scene');
   const reticleEl = document.getElementById('reticle');
 
-  let xrSession = null;
-  let xrRefSpace = null;
-  let hitTestSource = null;
-  let placedEntity = null; // a-entity with model
-  let viewerSpace = null;
-  let gl = null;
+  let placedEntity = null;
 
-  // Проверка поддержки WebXR immersive-ar
-  async function isArSupported() {
-    if (navigator.xr && navigator.xr.isSessionSupported) {
-      try {
-        return await navigator.xr.isSessionSupported('immersive-ar');
-      } catch (e) {
-        console.warn('isSessionSupported error', e);
-        return false;
-      }
-    }
-    return false;
-  }
-
-  // Создать a-entity с моделью (но не добавлять в сцену)
   function createModelEntity() {
     const ent = document.createElement('a-entity');
     ent.setAttribute('gltf-model', '#modelGLB');
     ent.setAttribute('rotation', '0 0 0');
     ent.setAttribute('scale', '0.25 0.25 0.25');
-    // немного поднять модель над поверхностью (если нужно)
     ent.setAttribute('position', '0 0 0');
     return ent;
   }
 
-  // Вход в AR: создаём XRSession и hit-test
+  // AR поддержка
+  async function isArSupported() {
+    if (navigator.xr && navigator.xr.isSessionSupported) {
+      try {
+        return await navigator.xr.isSessionSupported('immersive-ar');
+      } catch (e) { return false; }
+    }
+    return false;
+  }
+
   enterBtn.addEventListener('click', async () => {
-    // проверка поддержки
     if (!await isArSupported()) {
-      alert('Ваш браузер/устройство не поддерживает WebXR immersive-ar. Попробуйте Chrome на Android.');
+      notice.innerText = 'AR не поддерживается. Используется режим эмуляции.';
+      // Добавим модель в центр сцены для теста
+      if (!placedEntity) {
+        placedEntity = createModelEntity();
+        placedEntity.setAttribute('position', '0 0 -1.5');
+        scene.appendChild(placedEntity);
+      }
+      enterBtn.disabled = true;
       return;
     }
 
-    // Получаем WebGL контекст сцены (A-Frame)
-    const renderer = scene.renderer;
-    if (!renderer) {
-      alert('Ошибка: сцена ещё не инициализирована. Обновите страницу и попробуйте снова.');
-      return;
-    }
-    gl = renderer.getContext();
+    // Для устройств с WebXR
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test', 'local-floor'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body }
+    });
 
-    try {
-      xrSession = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test', 'local-floor'],
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: document.body }
-      });
-    } catch (err) {
-      console.error('requestSession failed', err);
-      alert('Не удалось получить AR сессию: ' + err);
-      return;
-    }
+    await scene.renderer.xr.setSession(session);
 
-    // Передаём сессии стек WebGL A-Frame
-    await renderer.xr.setSession(xrSession);
+    const xrRefSpace = await session.requestReferenceSpace('local-floor');
+    const viewerSpace = await session.requestReferenceSpace('viewer');
+    const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
 
-    // Ссылка пространства
-    try {
-      xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
-    } catch(e) {
-      xrRefSpace = await xrSession.requestReferenceSpace('local');
-    }
+    session.requestAnimationFrame(function onXRFrame(time, frame) {
+      session.requestAnimationFrame(onXRFrame);
 
-    // viewer space & hit test source
-    viewerSpace = await xrSession.requestReferenceSpace('viewer');
-    hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+      const hitResults = frame.getHitTestResults(hitTestSource);
+      if (hitResults.length > 0) {
+        const hit = hitResults[0];
+        const pose = hit.getPose(xrRefSpace);
+        reticleEl.object3D.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+        reticleEl.object3D.quaternion.set(
+          pose.transform.orientation.x,
+          pose.transform.orientation.y,
+          pose.transform.orientation.z,
+          pose.transform.orientation.w
+        );
+        reticleEl.setAttribute('visible', true);
+      } else {
+        reticleEl.setAttribute('visible', false);
+      }
+    });
 
-    // подписываемся на каждый XR кадр
-    xrSession.requestAnimationFrame(onXRFrame);
-
-    // когда сессия закончится — очистим
-    xrSession.addEventListener('end', () => {
-      hitTestSource && hitTestSource.cancel();
-      hitTestSource = null;
-      xrSession = null;
-      reticleEl.setAttribute('visible', 'false');
+    session.addEventListener('end', () => {
+      reticleEl.setAttribute('visible', false);
       notice.innerText = 'AR session ended.';
     });
 
-    notice.innerText = 'AR запущен — Наведи камеру на поверхность. Нажми "Place / Move" чтобы поставить модель.';
+    notice.innerText = 'AR запущен — наведите камеру на поверхность и нажмите "Place / Move".';
   });
 
-  // Функция кадра XR — делаем hit-test и показываем ретикл
-  function onXRFrame(time, frame) {
-    const session = frame.session;
-    const pose = frame.getViewerPose(xrRefSpace);
-    // запрашиваем следующий кадр
-    session.requestAnimationFrame(onXRFrame);
-
-    if (!hitTestSource) return;
-
-    const hitTestResults = frame.getHitTestResults(hitTestSource);
-    if (hitTestResults.length > 0) {
-      const hit = hitTestResults[0];
-      const hitPose = hit.getPose(xrRefSpace);
-
-      // обновляем позицию ретикла в A-Frame (в world координатах)
-      const pos = hitPose.transform.position;
-      const ori = hitPose.transform.orientation;
-
-      // Устанавливаем позицию ретикла — через setAttribute world position requires object3D
-      const threeObj = reticleEl.object3D;
-      threeObj.position.set(pos.x, pos.y, pos.z);
-      threeObj.quaternion.set(ori.x, ori.y, ori.z, ori.w);
-      reticleEl.setAttribute('visible', true);
-
-    } else {
-      reticleEl.setAttribute('visible', false);
-    }
-  }
-
-  // Place / Move — помещаем модель туда, где ретикл
+  // Place / Move
   placeBtn.addEventListener('click', () => {
-    if (!xrSession) {
-      alert('Сначала нажмите Enter AR.');
-      return;
-    }
-    if (!reticleEl.getAttribute('visible')) {
-      alert('Ретикл не виден — наведите камеру на плоскую поверхность.');
-      return;
-    }
+    if (!reticleEl.getAttribute('visible')) return;
 
-    // Если ещё не было создано — создаём и добавляем в сцену
     if (!placedEntity) {
       placedEntity = createModelEntity();
       scene.appendChild(placedEntity);
     }
 
-    // Получаем позицию/вращение ретикла и применяем к модели
-    const rObj = reticleEl.object3D;
-    const p = rObj.position;
-    const q = rObj.quaternion;
-    // применять в world coordinates:
-    placedEntity.object3D.position.copy(p);
-    placedEntity.object3D.quaternion.copy(q);
-    // немного поднять модель над поверхностью (если нужно)
+    placedEntity.object3D.position.copy(reticleEl.object3D.position);
+    placedEntity.object3D.quaternion.copy(reticleEl.object3D.quaternion);
     placedEntity.object3D.position.y += 0.01;
   });
 
-  // Rotate / Scale / Remove
+  // Rotate
   rotateBtn.addEventListener('click', () => {
-    if (!placedEntity) return alert('Сначала поставьте модель (Place).');
-    const rot = placedEntity.getAttribute('rotation');
-    placedEntity.setAttribute('rotation', `${rot.x} ${rot.y + 20} ${rot.z}`);
+    if (!placedEntity) return;
+    const r = placedEntity.getAttribute('rotation');
+    placedEntity.setAttribute('rotation', `${r.x} ${r.y + 20} ${r.z}`);
   });
 
+  // Scale
   scaleUpBtn.addEventListener('click', () => {
-    if (!placedEntity) return alert('Сначала поставьте модель (Place).');
+    if (!placedEntity) return;
     const s = placedEntity.getAttribute('scale');
     const nx = (s.x * 1.1).toFixed(3);
     placedEntity.setAttribute('scale', `${nx} ${nx} ${nx}`);
   });
-
   scaleDownBtn.addEventListener('click', () => {
-    if (!placedEntity) return alert('Сначала поставьте модель (Place).');
+    if (!placedEntity) return;
     const s = placedEntity.getAttribute('scale');
     const nx = Math.max(0.01, (s.x / 1.1)).toFixed(3);
     placedEntity.setAttribute('scale', `${nx} ${nx} ${nx}`);
   });
 
+  // Remove
   removeBtn.addEventListener('click', () => {
     if (!placedEntity) return;
-    placedEntity.parentNode.removeChild(placedEntity);
+    placedEntity.remove();
     placedEntity = null;
   });
-
-  // Fallback: если WebXR не доступен — позволим тестировать модель в 3D (на экране)
-  (async () => {
-    if (!await isArSupported()) {
-      notice.innerText = 'WebXR immersive-ar не поддерживается. Запуск в режиме эмуляции: разместите модель в центре сцены.';
-      // добавим модель в центр сцены для теста
-      const model = createModelEntity();
-      model.setAttribute('position', '0 0 -1.5');
-      scene.appendChild(model);
-      placedEntity = model;
-      // отключим Enter AR
-      enterBtn.disabled = true;
-    }
-  })();
-
   </script>
 </body>
 </html>
