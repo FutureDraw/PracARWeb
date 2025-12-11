@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Практическая работа №7 — AR A-Frame + MindAR</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <!-- MindAR (image tracking) -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; background:#000; }
+    #hint { position: fixed; top:10px; left:0; right:0; text-align:center; color:#fff;
+           text-shadow:0 0 6px #000; z-index:20; font-size:18px; }
+    .btn {
+      position: fixed; bottom:18px; padding:10px 14px; border-radius:8px; font-size:16px;
+      background:rgba(0,0,0,0.6); color:#fff; border:1px solid rgba(255,255,255,0.08); z-index:20;
+      -webkit-user-select:none; user-select:none;
+    }
+    #rotateBtn { left:16px; }
+    #scaleUp { left:140px; }
+    #scaleDown { left:200px; }
+    #reset { right:16px; }
+    #instructions { position: fixed; left:10px; top:52px; color:#fff; font-size:13px; z-index:20; }
+  </style>
+</head>
+<body>
+  <div id="hint">Наведите камеру на маркер (распечатай marker.png или открой его на другом экране)</div>
+  <div id="instructions">
+    Управление:<br>
+    • Перемещение: перетаскивание одним пальцем / мышью<br>
+    • Масштаб: pinch (двумя пальцами) или + / − кнопки<br>
+    • Вращение: двумя пальцами поворачивай, или кнопка "Повернуть"
+  </div>
+
+  <button id="rotateBtn" class="btn">Повернуть</button>
+  <button id="scaleUp" class="btn">+</button>
+  <button id="scaleDown" class="btn">−</button>
+  <button id="reset" class="btn">Сброс</button>
+
+  <!-- A-Frame сцена -->
+  <a-scene
+    mindar-image="imageTargetSrc: ./assets/marker.mind; maxTrack: 1"
+    embedded
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: true">
+
+    <a-assets>
+      <!-- Укажи свою модель: заменить src если нужно -->
+      <a-asset-item id="modelGLB" src="./assets/model.glb"></a-asset-item>
+    </a-assets>
+
+    <!-- Таргет с индексом 0 (первый маркер в marker.mind) -->
+    <a-entity mindar-image-target="targetIndex: 0">
+      <!-- Объект — дочерний элемент таргета: позиции и масштаб относительно маркера -->
+      <a-entity id="arObject"
+                gltf-model="#modelGLB"
+                position="0 0 0"
+                rotation="0 0 0"
+                scale="0.25 0.25 0.25"
+                gesture-handler>
+      </a-entity>
+    </a-entity>
+
+    <!-- Камера -->
+    <a-camera position="0 0 0"></a-camera>
+  </a-scene>
+
+  <script>
+    // ------------------------------
+    // Компонент gesture-handler
+    // ------------------------------
+    // Обрабатывает drag, pinch (масштаб) и rotate (двумя пальцами) на AR-объекте.
+    AFRAME.registerComponent('gesture-handler', {
+      init: function () {
+        this.obj = this.el; // a-entity с моделью
+        this.startScale = this.obj.getAttribute('scale');
+        this.startRotation = this.obj.getAttribute('rotation');
+        this.startPosition = this.obj.getAttribute('position');
+
+        // Внутренние переменные
+        this.isDragging = false;
+        this.previousTouches = [];
+        this.lastTouchDistance = null;
+        this.lastTouchAngle = null;
+
+        // Слушатели на canvas сцены
+        this.canvas = this.el.sceneEl.canvas;
+        if (!this.canvas) {
+          this.el.sceneEl.addEventListener('renderstart', () => {
+            this.canvas = this.el.sceneEl.canvas;
+            this.addListeners();
+          });
+        } else {
+          this.addListeners();
+        }
+      },
+
+      addListeners: function () {
+        // Используем pointer/touch события на document для простоты
+        this._ontouchstart = this.onTouchStart.bind(this);
+        this._ontouchmove = this.onTouchMove.bind(this);
+        this._ontouchend = this.onTouchEnd.bind(this);
+
+        this.canvas.addEventListener('touchstart', this._ontouchstart, {passive:false});
+        this.canvas.addEventListener('touchmove', this._ontouchmove, {passive:false});
+        this.canvas.addEventListener('touchend', this._ontouchend);
+        this.canvas.addEventListener('mousedown', this._ontouchstart);
+        this.canvas.addEventListener('mousemove', this._ontouchmove);
+        this.canvas.addEventListener('mouseup', this._ontouchend);
+      },
+
+      removeListeners: function () {
+        if (!this.canvas) return;
+        this.canvas.removeEventListener('touchstart', this._ontouchstart);
+        this.canvas.removeEventListener('touchmove', this._ontouchmove);
+        this.canvas.removeEventListener('touchend', this._ontouchend);
+        this.canvas.removeEventListener('mousedown', this._ontouchstart);
+        this.canvas.removeEventListener('mousemove', this._ontouchmove);
+        this.canvas.removeEventListener('mouseup', this._ontouchend);
+      },
+
+      onTouchStart: function (evt) {
+        if (evt.type === 'mousedown') {
+          this.isDragging = true;
+          this.previousTouches = [{x: evt.clientX, y: evt.clientY}];
+          evt.preventDefault();
+          return;
+        }
+        // touchstart
+        const touches = evt.touches;
+        this.previousTouches = [];
+        for (let i = 0; i < touches.length; i++) {
+          this.previousTouches.push({x: touches[i].clientX, y: touches[i].clientY});
+        }
+        if (touches.length === 1) {
+          this.isDragging = true;
+        } else {
+          this.isDragging = false;
+        }
+        // начальные метрики для pinch/rotate
+        if (touches.length >= 2) {
+          const dx = touches[0].clientX - touches[1].clientX;
+          const dy = touches[0].clientY - touches[1].clientY;
+          this.lastTouchDistance = Math.hypot(dx, dy);
+          this.lastTouchAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+        }
+        evt.preventDefault();
+      },
+
+      onTouchMove: function (evt) {
+        if (evt.type === 'mousemove' && !this.isDragging) return;
+        if (evt.type === 'mousemove') {
+          // treat as single pointer drag
+          const touch = {x: evt.clientX, y: evt.clientY};
+          this.handleDrag(touch);
+          return;
+        }
+
+        const touches = evt.touches;
+        if (touches.length === 1 && this.isDragging) {
+          // one-finger drag => перемещаем объект по X и Z (в локальных координатах маркера)
+          const t = touches[0];
+          this.handleDrag({x: t.clientX, y: t.clientY});
+        } else if (touches.length >= 2) {
+          // pinch -> scale, rotate -> rotation.y
+          const dx = touches[0].clientX - touches[1].clientX;
+          const dy = touches[0].clientY - touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+          // SCALE
+          if (this.lastTouchDistance) {
+            const scaleFactor = dist / this.lastTouchDistance;
+            const curScale = this.obj.getAttribute('scale');
+            let newScale = {
+              x: curScale.x * scaleFactor,
+              y: curScale.y * scaleFactor,
+              z: curScale.z * scaleFactor
+            };
+            // clamp scale
+            newScale.x = Math.max(0.05, Math.min(3, newScale.x));
+            newScale.y = Math.max(0.05, Math.min(3, newScale.y));
+            newScale.z = Math.max(0.05, Math.min(3, newScale.z));
+            this.obj.setAttribute('scale', `${newScale.x} ${newScale.y} ${newScale.z}`);
+          }
+          // ROTATE (изменение вокруг Y)
+          if (this.lastTouchAngle) {
+            const deltaAngle = angle - this.lastTouchAngle;
+            const rot = this.obj.getAttribute('rotation');
+            const newY = rot.y + deltaAngle;
+            this.obj.setAttribute('rotation', `${rot.x} ${newY} ${rot.z}`);
+          }
+
+          this.lastTouchDistance = dist;
+          this.lastTouchAngle = angle;
+        }
+        evt.preventDefault();
+      },
+
+      handleDrag: function (touch) {
+        // Конвертируем смещение экрана в смещение позиции модели по X и Z.
+        // Это не физически точное перемещение, но подходит для учебной AR.
+        if (!this.previousTouches || this.previousTouches.length === 0) {
+          this.previousTouches = [touch];
+          return;
+        }
+        const prev = this.previousTouches[0];
+        const dx = (touch.x - prev.x);
+        const dy = (touch.y - prev.y);
+
+        // пиксели -> относительное смещение (на глаз)
+        const factor = 0.0015; // настрой при необходимости
+        const currentPos = this.obj.getAttribute('position');
+        const newX = currentPos.x - dx * factor;
+        const newZ = currentPos.z + dy * factor;
+        // ограничим по разумным границам
+        this.obj.setAttribute('position', `${newX.toFixed(3)} ${currentPos.y} ${newZ.toFixed(3)}`);
+
+        this.previousTouches = [touch];
+      },
+
+      onTouchEnd: function (evt) {
+        if (evt.type === 'mouseup') {
+          this.isDragging = false;
+          this.previousTouches = [];
+          return;
+        }
+        // touchend: сбрасываем состояния, если осталось меньше двух касаний
+        if (evt.touches && evt.touches.length < 2) {
+          this.lastTouchDistance = null;
+          this.lastTouchAngle = null;
+        }
+        if (evt.touches && evt.touches.length === 0) {
+          this.isDragging = false;
+          this.previousTouches = [];
+        }
+      },
+
+      remove: function () {
+        this.removeListeners();
+      }
+    });
+
+    // ------------------------------
+    // Управление кнопками (Rotate / + / - / Reset)
+    // ------------------------------
+    document.addEventListener('DOMContentLoaded', () => {
+      const arObject = document.querySelector('#arObject');
+
+      document.querySelector('#rotateBtn').addEventListener('click', () => {
+        const rot = arObject.getAttribute('rotation');
+        arObject.setAttribute('rotation', `${rot.x} ${rot.y + 20} ${rot.z}`);
+      });
+
+      document.querySelector('#scaleUp').addEventListener('click', () => {
+        const s = arObject.getAttribute('scale');
+        const ns = {x: s.x + 0.05, y: s.y + 0.05, z: s.z + 0.05};
+        arObject.setAttribute('scale', `${ns.x} ${ns.y} ${ns.z}`);
+      });
+
+      document.querySelector('#scaleDown').addEventListener('click', () => {
+        const s = arObject.getAttribute('scale');
+        const ns = {x: Math.max(0.05, s.x - 0.05), y: Math.max(0.05, s.y - 0.05), z: Math.max(0.05, s.z - 0.05)};
+        arObject.setAttribute('scale', `${ns.x} ${ns.y} ${ns.z}`);
+      });
+
+      document.querySelector('#reset').addEventListener('click', () => {
+        arObject.setAttribute('position', '0 0 0');
+        arObject.setAttribute('rotation', '0 0 0');
+        arObject.setAttribute('scale', '0.25 0.25 0.25');
+      });
+    });
+  </script>
+</body>
+</html>
