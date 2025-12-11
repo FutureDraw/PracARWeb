@@ -1,188 +1,48 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <title>Markerless AR — A-Frame + WebXR Hit Test</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <title>MindAR + A-Frame на iPhone</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
+  <!-- MindAR для A-Frame -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.0/dist/mindar-image-aframe.prod.js"></script>
+
   <style>
-    body { margin:0; font-family: Arial, sans-serif; background:#000; color:#fff; }
-    #ui { position: fixed; left:10px; top:10px; z-index:20; }
-    .btn {
-      background: rgba(0,0,0,0.6);
-      color: #fff;
-      border: 1px solid rgba(255,255,255,0.08);
-      padding: 8px 12px;
-      margin: 6px;
-      border-radius: 8px;
-      font-size: 14px;
-    }
-    #notice { position:fixed; left:10px; bottom:10px; z-index:20; color:#fff; font-size:13px; text-shadow:0 0 6px #000;}
+    body { margin: 0; overflow: hidden; }
+    #ui { position: fixed; top: 10px; left: 10px; z-index: 10; color: white; font-family: Arial; }
   </style>
 </head>
 <body>
-  <div id="ui">
-    <button id="enter-ar" class="btn">Enter AR</button>
-    <button id="place" class="btn">Place / Move</button>
-    <button id="rotate" class="btn">Rotate +20°</button>
-    <button id="scaleUp" class="btn">Scale +</button>
-    <button id="scaleDown" class="btn">Scale −</button>
-    <button id="remove" class="btn">Remove</button>
-  </div>
 
-  <div id="notice">Открой по HTTPS на поддерживаемом устройстве (Chrome на Android). Нажми «Enter AR».</div>
+<div id="ui">Наведи камеру на маркер</div>
 
-  <a-scene
-    embedded
-    vr-mode-ui="enabled: false"
-    renderer="logarithmicDepthBuffer: true"
-    xr="type: ar; referenceSpace: local-floor; optionalFeatures: hit-test, dom-overlay; domOverlay: #ui">
+<!-- AR Сцена -->
+<a-scene mindar-image="imageTargetSrc: ./assets/target.mind;" embedded color-space="sRGB" renderer="logarithmicDepthBuffer: true; antialias: true;" vr-mode-ui="enabled: false">
 
-    <a-assets>
-      <a-asset-item id="modelGLB" src="./assets/model.glb"></a-asset-item>
-    </a-assets>
+  <!-- Камера MindAR -->
+  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- Ретикл -->
-    <a-entity id="reticle" visible="false">
-      <a-ring id="reticleRing" radius-inner="0.04" radius-outer="0.06" rotation="-90 0 0" material="color: #0ff; opacity: 0.9"></a-ring>
-      <a-cylinder height="0.001" radius="0.02" rotation="-90 0 0" material="color:#0ff; opacity:0.2"></a-cylinder>
-    </a-entity>
+  <!-- Маркерная сущность -->
+  <a-entity mindar-image-target="targetIndex: 0">
 
-    <!-- Камера AR / 3D -->
-    <a-entity camera position="0 1.6 0"></a-entity>
-  </a-scene>
+    <!-- 3D модель -->
+    <a-gltf-model src="./assets/model.glb" 
+                  scale="0.2 0.2 0.2" 
+                  rotation="0 180 0" 
+                  position="0 0 0">
+    </a-gltf-model>
 
-  <script>
-  const enterBtn = document.getElementById('enter-ar');
-  const placeBtn = document.getElementById('place');
-  const rotateBtn = document.getElementById('rotate');
-  const scaleUpBtn = document.getElementById('scaleUp');
-  const scaleDownBtn = document.getElementById('scaleDown');
-  const removeBtn = document.getElementById('remove');
-  const notice = document.getElementById('notice');
+    <!-- Свет -->
+    <a-light type="ambient" color="#ffffff" intensity="0.5"></a-light>
+    <a-light type="directional" position="0 1 0" intensity="0.8"></a-light>
 
-  const scene = document.querySelector('a-scene');
-  const reticleEl = document.getElementById('reticle');
+  </a-entity>
 
-  let placedEntity = null;
+</a-scene>
 
-  function createModelEntity() {
-    const ent = document.createElement('a-entity');
-    ent.setAttribute('gltf-model', '#modelGLB');
-    ent.setAttribute('rotation', '0 0 0');
-    ent.setAttribute('scale', '0.25 0.25 0.25');
-    ent.setAttribute('position', '0 0 0');
-    return ent;
-  }
-
-  // AR поддержка
-  async function isArSupported() {
-    if (navigator.xr && navigator.xr.isSessionSupported) {
-      try {
-        return await navigator.xr.isSessionSupported('immersive-ar');
-      } catch (e) { return false; }
-    }
-    return false;
-  }
-
-  enterBtn.addEventListener('click', async () => {
-    if (!await isArSupported()) {
-      notice.innerText = 'AR не поддерживается. Используется режим эмуляции.';
-      // Добавим модель в центр сцены для теста
-      if (!placedEntity) {
-        placedEntity = createModelEntity();
-        placedEntity.setAttribute('position', '0 0 -1.5');
-        scene.appendChild(placedEntity);
-      }
-      enterBtn.disabled = true;
-      return;
-    }
-
-    // Для устройств с WebXR
-    const session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test', 'local-floor'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: document.body }
-    });
-
-    await scene.renderer.xr.setSession(session);
-
-    const xrRefSpace = await session.requestReferenceSpace('local-floor');
-    const viewerSpace = await session.requestReferenceSpace('viewer');
-    const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-
-    session.requestAnimationFrame(function onXRFrame(time, frame) {
-      session.requestAnimationFrame(onXRFrame);
-
-      const hitResults = frame.getHitTestResults(hitTestSource);
-      if (hitResults.length > 0) {
-        const hit = hitResults[0];
-        const pose = hit.getPose(xrRefSpace);
-        reticleEl.object3D.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
-        reticleEl.object3D.quaternion.set(
-          pose.transform.orientation.x,
-          pose.transform.orientation.y,
-          pose.transform.orientation.z,
-          pose.transform.orientation.w
-        );
-        reticleEl.setAttribute('visible', true);
-      } else {
-        reticleEl.setAttribute('visible', false);
-      }
-    });
-
-    session.addEventListener('end', () => {
-      reticleEl.setAttribute('visible', false);
-      notice.innerText = 'AR session ended.';
-    });
-
-    notice.innerText = 'AR запущен — наведите камеру на поверхность и нажмите "Place / Move".';
-  });
-
-  // Place / Move
-  placeBtn.addEventListener('click', () => {
-    if (!reticleEl.getAttribute('visible')) return;
-
-    if (!placedEntity) {
-      placedEntity = createModelEntity();
-      scene.appendChild(placedEntity);
-    }
-
-    placedEntity.object3D.position.copy(reticleEl.object3D.position);
-    placedEntity.object3D.quaternion.copy(reticleEl.object3D.quaternion);
-    placedEntity.object3D.position.y += 0.01;
-  });
-
-  // Rotate
-  rotateBtn.addEventListener('click', () => {
-    if (!placedEntity) return;
-    const r = placedEntity.getAttribute('rotation');
-    placedEntity.setAttribute('rotation', `${r.x} ${r.y + 20} ${r.z}`);
-  });
-
-  // Scale
-  scaleUpBtn.addEventListener('click', () => {
-    if (!placedEntity) return;
-    const s = placedEntity.getAttribute('scale');
-    const nx = (s.x * 1.1).toFixed(3);
-    placedEntity.setAttribute('scale', `${nx} ${nx} ${nx}`);
-  });
-  scaleDownBtn.addEventListener('click', () => {
-    if (!placedEntity) return;
-    const s = placedEntity.getAttribute('scale');
-    const nx = Math.max(0.01, (s.x / 1.1)).toFixed(3);
-    placedEntity.setAttribute('scale', `${nx} ${nx} ${nx}`);
-  });
-
-  // Remove
-  removeBtn.addEventListener('click', () => {
-    if (!placedEntity) return;
-    placedEntity.remove();
-    placedEntity = null;
-  });
-  </script>
 </body>
 </html>
