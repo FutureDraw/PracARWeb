@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>MindAR + A-Frame на iPhone</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
@@ -12,8 +12,31 @@
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.0/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
-    body { margin: 0; overflow: hidden; }
-    #ui { position: fixed; top: 10px; left: 10px; z-index: 10; color: white; font-family: Arial; }
+    body, html { 
+      margin: 0; 
+      padding: 0; 
+      overflow: hidden; 
+      width: 100%; 
+      height: 100%; 
+    }
+    #ui { 
+      position: fixed; 
+      top: 10px; 
+      left: 10px; 
+      z-index: 10; 
+      color: white; 
+      font-family: Arial; 
+      background: rgba(0,0,0,0.3); 
+      padding: 5px 10px; 
+      border-radius: 5px;
+    }
+    a-scene { 
+      width: 100%; 
+      height: 100%; 
+      position: absolute; 
+      top: 0; 
+      left: 0; 
+    }
   </style>
 </head>
 <body>
@@ -21,7 +44,12 @@
 <div id="ui">Наведи камеру на маркер</div>
 
 <!-- AR Сцена -->
-<a-scene mindar-image="imageTargetSrc: ./assets/target.mind;" embedded color-space="sRGB" renderer="logarithmicDepthBuffer: true; antialias: true;" vr-mode-ui="enabled: false">
+<a-scene mindar-image="imageTargetSrc: ./assets/target.mind;" 
+         color-space="sRGB" 
+         renderer="logarithmicDepthBuffer: true; antialias: true;" 
+         vr-mode-ui="enabled: false"
+         embedded
+         mindar-image-controls="autoStart: true">
 
   <!-- Камера MindAR -->
   <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
