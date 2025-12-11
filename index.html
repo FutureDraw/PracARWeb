@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>MindAR + A-Frame с кнопками вращения</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <!-- Заблокировать масштабирование -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
@@ -118,6 +119,26 @@
 
       wrapper.setAttribute('rotation', rotation);
     }
+
+    // Блокировка масштабирования на мобильных
+    let lastTouchEnd = 0;
+    document.addEventListener('touchstart', function (event) {
+      if (event.touches.length > 1) {
+        event.preventDefault(); // запрет pinch-to-zoom
+      }
+    }, { passive: false });
+
+    document.addEventListener('touchend', function (event) {
+      const now = (new Date()).getTime();
+      if (now - lastTouchEnd <= 300) {
+        event.preventDefault(); // запрет двойного тапа
+      }
+      lastTouchEnd = now;
+    }, false);
+
+    document.addEventListener('gesturestart', function (event) {
+      event.preventDefault(); // блокировка жестов на iOS
+    });
   </script>
 
 </a-scene>
