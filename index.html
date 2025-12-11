@@ -48,6 +48,7 @@
       background-color: rgba(0,0,0,0.5);
       color: white;
       cursor: pointer;
+      touch-action: manipulation; /* важно для мобильных */
     }
     button:hover {
       background-color: rgba(0,0,0,0.8);
@@ -120,34 +121,28 @@
       wrapper.setAttribute('rotation', rotation);
     }
 
-    // Блокировка масштабирования на мобильных
+    // Блокировка масштабирования на мобильных (кнопки не трогаем)
     let lastTouchEnd = 0;
 
-    // pinch-to-zoom
     document.addEventListener('touchstart', function (event) {
       if (event.touches.length > 1) {
-        event.preventDefault();
+        event.preventDefault(); // запрет pinch-to-zoom
       }
     }, { passive: false });
 
-    // двойной тап
     document.addEventListener('touchend', function (event) {
+      // если событие произошло на кнопке, не блокируем
+      if (event.target.closest('button')) return;
+
       const now = (new Date()).getTime();
       if (now - lastTouchEnd <= 300) {
-        event.preventDefault();
+        event.preventDefault(); // запрет двойного тапа
       }
       lastTouchEnd = now;
     }, { passive: false });
 
-    // блокировка жестов на iOS
     document.addEventListener('gesturestart', function (event) {
-      event.preventDefault();
-    });
-
-    // блокировка двойного тапа на кнопках
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(btn => {
-      btn.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
+      event.preventDefault(); // блокировка жестов на iOS
     });
   </script>
 </a-scene>
