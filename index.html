@@ -122,25 +122,34 @@
 
     // Блокировка масштабирования на мобильных
     let lastTouchEnd = 0;
+
+    // pinch-to-zoom
     document.addEventListener('touchstart', function (event) {
       if (event.touches.length > 1) {
-        event.preventDefault(); // запрет pinch-to-zoom
+        event.preventDefault();
       }
     }, { passive: false });
 
+    // двойной тап
     document.addEventListener('touchend', function (event) {
       const now = (new Date()).getTime();
       if (now - lastTouchEnd <= 300) {
-        event.preventDefault(); // запрет двойного тапа
+        event.preventDefault();
       }
       lastTouchEnd = now;
-    }, false);
+    }, { passive: false });
 
+    // блокировка жестов на iOS
     document.addEventListener('gesturestart', function (event) {
-      event.preventDefault(); // блокировка жестов на iOS
+      event.preventDefault();
+    });
+
+    // блокировка двойного тапа на кнопках
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(btn => {
+      btn.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
     });
   </script>
-
 </a-scene>
 
 </body>
