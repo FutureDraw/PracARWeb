@@ -43,13 +43,12 @@
 
 <div id="ui">Наведи камеру на маркер</div>
 
-<!-- AR Сцена -->
 <a-scene mindar-image="imageTargetSrc: ./assets/target.mind;" 
          color-space="sRGB" 
          renderer="logarithmicDepthBuffer: true; antialias: true;" 
          vr-mode-ui="enabled: false"
          embedded
-         mindar-image-controls="autoStart: true">
+         >
 
   <!-- Камера MindAR -->
   <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -58,10 +57,12 @@
   <a-entity mindar-image-target="targetIndex: 0">
 
     <!-- 3D модель -->
-    <a-gltf-model src="./assets/model.glb" 
+    <a-gltf-model id="model"
+                  src="./assets/model.glb" 
                   scale="0.2 0.2 0.2" 
                   rotation="0 180 0" 
-                  position="0 0 0">
+                  position="0 0 0"
+                  gesture-handler>
     </a-gltf-model>
 
     <!-- Свет -->
@@ -69,6 +70,27 @@
     <a-light type="directional" position="0 1 0" intensity="0.8"></a-light>
 
   </a-entity>
+
+  <!-- Скрипт для вращения модели пальцем -->
+  <script>
+    AFRAME.registerComponent('gesture-handler', {
+      init: function () {
+        const el = this.el;
+        let initialRotation;
+        let startX;
+
+        el.addEventListener('touchstart', (e) => {
+          startX = e.touches[0].clientX;
+          initialRotation = el.getAttribute('rotation').y;
+        });
+
+        el.addEventListener('touchmove', (e) => {
+          const deltaX = e.touches[0].clientX - startX;
+          el.setAttribute('rotation', { x: 0, y: initialRotation + deltaX * 0.5, z: 0 });
+        });
+      }
+    });
+  </script>
 
 </a-scene>
 
