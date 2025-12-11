@@ -2,277 +2,254 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <title>Практическая работа №7 — AR A-Frame + MindAR</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Markerless AR — A-Frame + WebXR Hit Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- A-Frame -->
-  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-  <!-- MindAR (image tracking) -->
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-aframe.prod.js"></script>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
   <style>
-    body { margin:0; font-family: Arial, sans-serif; background:#000; }
-    #hint { position: fixed; top:10px; left:0; right:0; text-align:center; color:#fff;
-           text-shadow:0 0 6px #000; z-index:20; font-size:18px; }
+    body { margin:0; font-family: Arial, sans-serif; background:#000; color:#fff; }
+    #ui { position: fixed; left:10px; top:10px; z-index:20; }
     .btn {
-      position: fixed; bottom:18px; padding:10px 14px; border-radius:8px; font-size:16px;
-      background:rgba(0,0,0,0.6); color:#fff; border:1px solid rgba(255,255,255,0.08); z-index:20;
-      -webkit-user-select:none; user-select:none;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 8px 12px;
+      margin: 6px;
+      border-radius: 8px;
+      font-size: 14px;
     }
-    #rotateBtn { left:16px; }
-    #scaleUp { left:140px; }
-    #scaleDown { left:200px; }
-    #reset { right:16px; }
-    #instructions { position: fixed; left:10px; top:52px; color:#fff; font-size:13px; z-index:20; }
+    #notice { position:fixed; left:10px; bottom:10px; z-index:20; color:#fff; font-size:13px; text-shadow:0 0 6px #000;}
   </style>
 </head>
 <body>
-  <div id="hint">Наведите камеру на маркер (распечатай marker.png или открой его на другом экране)</div>
-  <div id="instructions">
-    Управление:<br>
-    • Перемещение: перетаскивание одним пальцем / мышью<br>
-    • Масштаб: pinch (двумя пальцами) или + / − кнопки<br>
-    • Вращение: двумя пальцами поворачивай, или кнопка "Повернуть"
+  <div id="ui">
+    <button id="enter-ar" class="btn">Enter AR</button>
+    <button id="place" class="btn">Place / Move</button>
+    <button id="rotate" class="btn">Rotate +20°</button>
+    <button id="scaleUp" class="btn">Scale +</button>
+    <button id="scaleDown" class="btn">Scale −</button>
+    <button id="remove" class="btn">Remove</button>
   </div>
 
-  <button id="rotateBtn" class="btn">Повернуть</button>
-  <button id="scaleUp" class="btn">+</button>
-  <button id="scaleDown" class="btn">−</button>
-  <button id="reset" class="btn">Сброс</button>
+  <div id="notice">Открой по HTTPS на поддерживаемом устройстве (Chrome на Android). Нажми «Enter AR».</div>
 
-  <!-- A-Frame сцена -->
-  <a-scene
-    mindar-image="imageTargetSrc: ./assets/marker.mind; maxTrack: 1"
-    embedded
-    vr-mode-ui="enabled: false"
-    device-orientation-permission-ui="enabled: true">
-
+  <a-scene renderer="logarithmicDepthBuffer: true;" embedded vr-mode-ui="enabled: false">
     <a-assets>
-      <!-- Укажи свою модель: заменить src если нужно -->
+      <!-- Положи сюда свою model.glb -->
       <a-asset-item id="modelGLB" src="./assets/model.glb"></a-asset-item>
     </a-assets>
 
-    <!-- Таргет с индексом 0 (первый маркер в marker.mind) -->
-    <a-entity mindar-image-target="targetIndex: 0">
-      <!-- Объект — дочерний элемент таргета: позиции и масштаб относительно маркера -->
-      <a-entity id="arObject"
-                gltf-model="#modelGLB"
-                position="0 0 0"
-                rotation="0 0 0"
-                scale="0.25 0.25 0.25"
-                gesture-handler>
-      </a-entity>
+    <!-- Ретикл — покажем место, куда можно вставить модель -->
+    <a-entity id="reticle" visible="false">
+      <a-ring id="reticleRing" radius-inner="0.04" radius-outer="0.06" rotation="-90 0 0" material="color: #0ff; opacity: 0.9"></a-ring>
+      <a-cylinder height="0.001" radius="0.02" rotation="-90 0 0" material="color:#0ff; opacity:0.2"></a-cylinder>
     </a-entity>
 
-    <!-- Камера -->
-    <a-camera position="0 0 0"></a-camera>
+    <!-- Сцена камера (не AR пока) -->
+    <a-entity id="camera" camera look-controls position="0 1.6 0"></a-entity>
   </a-scene>
 
   <script>
-    // ------------------------------
-    // Компонент gesture-handler
-    // ------------------------------
-    // Обрабатывает drag, pinch (масштаб) и rotate (двумя пальцами) на AR-объекте.
-    AFRAME.registerComponent('gesture-handler', {
-      init: function () {
-        this.obj = this.el; // a-entity с моделью
-        this.startScale = this.obj.getAttribute('scale');
-        this.startRotation = this.obj.getAttribute('rotation');
-        this.startPosition = this.obj.getAttribute('position');
+  // ----- Переменные -----
+  const enterBtn = document.getElementById('enter-ar');
+  const placeBtn = document.getElementById('place');
+  const rotateBtn = document.getElementById('rotate');
+  const scaleUpBtn = document.getElementById('scaleUp');
+  const scaleDownBtn = document.getElementById('scaleDown');
+  const removeBtn = document.getElementById('remove');
+  const notice = document.getElementById('notice');
 
-        // Внутренние переменные
-        this.isDragging = false;
-        this.previousTouches = [];
-        this.lastTouchDistance = null;
-        this.lastTouchAngle = null;
+  const scene = document.querySelector('a-scene');
+  const reticleEl = document.getElementById('reticle');
 
-        // Слушатели на canvas сцены
-        this.canvas = this.el.sceneEl.canvas;
-        if (!this.canvas) {
-          this.el.sceneEl.addEventListener('renderstart', () => {
-            this.canvas = this.el.sceneEl.canvas;
-            this.addListeners();
-          });
-        } else {
-          this.addListeners();
-        }
-      },
+  let xrSession = null;
+  let xrRefSpace = null;
+  let hitTestSource = null;
+  let placedEntity = null; // a-entity with model
+  let viewerSpace = null;
+  let gl = null;
 
-      addListeners: function () {
-        // Используем pointer/touch события на document для простоты
-        this._ontouchstart = this.onTouchStart.bind(this);
-        this._ontouchmove = this.onTouchMove.bind(this);
-        this._ontouchend = this.onTouchEnd.bind(this);
-
-        this.canvas.addEventListener('touchstart', this._ontouchstart, {passive:false});
-        this.canvas.addEventListener('touchmove', this._ontouchmove, {passive:false});
-        this.canvas.addEventListener('touchend', this._ontouchend);
-        this.canvas.addEventListener('mousedown', this._ontouchstart);
-        this.canvas.addEventListener('mousemove', this._ontouchmove);
-        this.canvas.addEventListener('mouseup', this._ontouchend);
-      },
-
-      removeListeners: function () {
-        if (!this.canvas) return;
-        this.canvas.removeEventListener('touchstart', this._ontouchstart);
-        this.canvas.removeEventListener('touchmove', this._ontouchmove);
-        this.canvas.removeEventListener('touchend', this._ontouchend);
-        this.canvas.removeEventListener('mousedown', this._ontouchstart);
-        this.canvas.removeEventListener('mousemove', this._ontouchmove);
-        this.canvas.removeEventListener('mouseup', this._ontouchend);
-      },
-
-      onTouchStart: function (evt) {
-        if (evt.type === 'mousedown') {
-          this.isDragging = true;
-          this.previousTouches = [{x: evt.clientX, y: evt.clientY}];
-          evt.preventDefault();
-          return;
-        }
-        // touchstart
-        const touches = evt.touches;
-        this.previousTouches = [];
-        for (let i = 0; i < touches.length; i++) {
-          this.previousTouches.push({x: touches[i].clientX, y: touches[i].clientY});
-        }
-        if (touches.length === 1) {
-          this.isDragging = true;
-        } else {
-          this.isDragging = false;
-        }
-        // начальные метрики для pinch/rotate
-        if (touches.length >= 2) {
-          const dx = touches[0].clientX - touches[1].clientX;
-          const dy = touches[0].clientY - touches[1].clientY;
-          this.lastTouchDistance = Math.hypot(dx, dy);
-          this.lastTouchAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-        }
-        evt.preventDefault();
-      },
-
-      onTouchMove: function (evt) {
-        if (evt.type === 'mousemove' && !this.isDragging) return;
-        if (evt.type === 'mousemove') {
-          // treat as single pointer drag
-          const touch = {x: evt.clientX, y: evt.clientY};
-          this.handleDrag(touch);
-          return;
-        }
-
-        const touches = evt.touches;
-        if (touches.length === 1 && this.isDragging) {
-          // one-finger drag => перемещаем объект по X и Z (в локальных координатах маркера)
-          const t = touches[0];
-          this.handleDrag({x: t.clientX, y: t.clientY});
-        } else if (touches.length >= 2) {
-          // pinch -> scale, rotate -> rotation.y
-          const dx = touches[0].clientX - touches[1].clientX;
-          const dy = touches[0].clientY - touches[1].clientY;
-          const dist = Math.hypot(dx, dy);
-          const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-
-          // SCALE
-          if (this.lastTouchDistance) {
-            const scaleFactor = dist / this.lastTouchDistance;
-            const curScale = this.obj.getAttribute('scale');
-            let newScale = {
-              x: curScale.x * scaleFactor,
-              y: curScale.y * scaleFactor,
-              z: curScale.z * scaleFactor
-            };
-            // clamp scale
-            newScale.x = Math.max(0.05, Math.min(3, newScale.x));
-            newScale.y = Math.max(0.05, Math.min(3, newScale.y));
-            newScale.z = Math.max(0.05, Math.min(3, newScale.z));
-            this.obj.setAttribute('scale', `${newScale.x} ${newScale.y} ${newScale.z}`);
-          }
-          // ROTATE (изменение вокруг Y)
-          if (this.lastTouchAngle) {
-            const deltaAngle = angle - this.lastTouchAngle;
-            const rot = this.obj.getAttribute('rotation');
-            const newY = rot.y + deltaAngle;
-            this.obj.setAttribute('rotation', `${rot.x} ${newY} ${rot.z}`);
-          }
-
-          this.lastTouchDistance = dist;
-          this.lastTouchAngle = angle;
-        }
-        evt.preventDefault();
-      },
-
-      handleDrag: function (touch) {
-        // Конвертируем смещение экрана в смещение позиции модели по X и Z.
-        // Это не физически точное перемещение, но подходит для учебной AR.
-        if (!this.previousTouches || this.previousTouches.length === 0) {
-          this.previousTouches = [touch];
-          return;
-        }
-        const prev = this.previousTouches[0];
-        const dx = (touch.x - prev.x);
-        const dy = (touch.y - prev.y);
-
-        // пиксели -> относительное смещение (на глаз)
-        const factor = 0.0015; // настрой при необходимости
-        const currentPos = this.obj.getAttribute('position');
-        const newX = currentPos.x - dx * factor;
-        const newZ = currentPos.z + dy * factor;
-        // ограничим по разумным границам
-        this.obj.setAttribute('position', `${newX.toFixed(3)} ${currentPos.y} ${newZ.toFixed(3)}`);
-
-        this.previousTouches = [touch];
-      },
-
-      onTouchEnd: function (evt) {
-        if (evt.type === 'mouseup') {
-          this.isDragging = false;
-          this.previousTouches = [];
-          return;
-        }
-        // touchend: сбрасываем состояния, если осталось меньше двух касаний
-        if (evt.touches && evt.touches.length < 2) {
-          this.lastTouchDistance = null;
-          this.lastTouchAngle = null;
-        }
-        if (evt.touches && evt.touches.length === 0) {
-          this.isDragging = false;
-          this.previousTouches = [];
-        }
-      },
-
-      remove: function () {
-        this.removeListeners();
+  // Проверка поддержки WebXR immersive-ar
+  async function isArSupported() {
+    if (navigator.xr && navigator.xr.isSessionSupported) {
+      try {
+        return await navigator.xr.isSessionSupported('immersive-ar');
+      } catch (e) {
+        console.warn('isSessionSupported error', e);
+        return false;
       }
+    }
+    return false;
+  }
+
+  // Создать a-entity с моделью (но не добавлять в сцену)
+  function createModelEntity() {
+    const ent = document.createElement('a-entity');
+    ent.setAttribute('gltf-model', '#modelGLB');
+    ent.setAttribute('rotation', '0 0 0');
+    ent.setAttribute('scale', '0.25 0.25 0.25');
+    // немного поднять модель над поверхностью (если нужно)
+    ent.setAttribute('position', '0 0 0');
+    return ent;
+  }
+
+  // Вход в AR: создаём XRSession и hit-test
+  enterBtn.addEventListener('click', async () => {
+    // проверка поддержки
+    if (!await isArSupported()) {
+      alert('Ваш браузер/устройство не поддерживает WebXR immersive-ar. Попробуйте Chrome на Android.');
+      return;
+    }
+
+    // Получаем WebGL контекст сцены (A-Frame)
+    const renderer = scene.renderer;
+    if (!renderer) {
+      alert('Ошибка: сцена ещё не инициализирована. Обновите страницу и попробуйте снова.');
+      return;
+    }
+    gl = renderer.getContext();
+
+    try {
+      xrSession = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test', 'local-floor'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      });
+    } catch (err) {
+      console.error('requestSession failed', err);
+      alert('Не удалось получить AR сессию: ' + err);
+      return;
+    }
+
+    // Передаём сессии стек WebGL A-Frame
+    await renderer.xr.setSession(xrSession);
+
+    // Ссылка пространства
+    try {
+      xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+    } catch(e) {
+      xrRefSpace = await xrSession.requestReferenceSpace('local');
+    }
+
+    // viewer space & hit test source
+    viewerSpace = await xrSession.requestReferenceSpace('viewer');
+    hitTestSource = await xrSession.requestHitTestSource({ space: viewerSpace });
+
+    // подписываемся на каждый XR кадр
+    xrSession.requestAnimationFrame(onXRFrame);
+
+    // когда сессия закончится — очистим
+    xrSession.addEventListener('end', () => {
+      hitTestSource && hitTestSource.cancel();
+      hitTestSource = null;
+      xrSession = null;
+      reticleEl.setAttribute('visible', 'false');
+      notice.innerText = 'AR session ended.';
     });
 
-    // ------------------------------
-    // Управление кнопками (Rotate / + / - / Reset)
-    // ------------------------------
-    document.addEventListener('DOMContentLoaded', () => {
-      const arObject = document.querySelector('#arObject');
+    notice.innerText = 'AR запущен — Наведи камеру на поверхность. Нажми "Place / Move" чтобы поставить модель.';
+  });
 
-      document.querySelector('#rotateBtn').addEventListener('click', () => {
-        const rot = arObject.getAttribute('rotation');
-        arObject.setAttribute('rotation', `${rot.x} ${rot.y + 20} ${rot.z}`);
-      });
+  // Функция кадра XR — делаем hit-test и показываем ретикл
+  function onXRFrame(time, frame) {
+    const session = frame.session;
+    const pose = frame.getViewerPose(xrRefSpace);
+    // запрашиваем следующий кадр
+    session.requestAnimationFrame(onXRFrame);
 
-      document.querySelector('#scaleUp').addEventListener('click', () => {
-        const s = arObject.getAttribute('scale');
-        const ns = {x: s.x + 0.05, y: s.y + 0.05, z: s.z + 0.05};
-        arObject.setAttribute('scale', `${ns.x} ${ns.y} ${ns.z}`);
-      });
+    if (!hitTestSource) return;
 
-      document.querySelector('#scaleDown').addEventListener('click', () => {
-        const s = arObject.getAttribute('scale');
-        const ns = {x: Math.max(0.05, s.x - 0.05), y: Math.max(0.05, s.y - 0.05), z: Math.max(0.05, s.z - 0.05)};
-        arObject.setAttribute('scale', `${ns.x} ${ns.y} ${ns.z}`);
-      });
+    const hitTestResults = frame.getHitTestResults(hitTestSource);
+    if (hitTestResults.length > 0) {
+      const hit = hitTestResults[0];
+      const hitPose = hit.getPose(xrRefSpace);
 
-      document.querySelector('#reset').addEventListener('click', () => {
-        arObject.setAttribute('position', '0 0 0');
-        arObject.setAttribute('rotation', '0 0 0');
-        arObject.setAttribute('scale', '0.25 0.25 0.25');
-      });
-    });
+      // обновляем позицию ретикла в A-Frame (в world координатах)
+      const pos = hitPose.transform.position;
+      const ori = hitPose.transform.orientation;
+
+      // Устанавливаем позицию ретикла — через setAttribute world position requires object3D
+      const threeObj = reticleEl.object3D;
+      threeObj.position.set(pos.x, pos.y, pos.z);
+      threeObj.quaternion.set(ori.x, ori.y, ori.z, ori.w);
+      reticleEl.setAttribute('visible', true);
+
+    } else {
+      reticleEl.setAttribute('visible', false);
+    }
+  }
+
+  // Place / Move — помещаем модель туда, где ретикл
+  placeBtn.addEventListener('click', () => {
+    if (!xrSession) {
+      alert('Сначала нажмите Enter AR.');
+      return;
+    }
+    if (!reticleEl.getAttribute('visible')) {
+      alert('Ретикл не виден — наведите камеру на плоскую поверхность.');
+      return;
+    }
+
+    // Если ещё не было создано — создаём и добавляем в сцену
+    if (!placedEntity) {
+      placedEntity = createModelEntity();
+      scene.appendChild(placedEntity);
+    }
+
+    // Получаем позицию/вращение ретикла и применяем к модели
+    const rObj = reticleEl.object3D;
+    const p = rObj.position;
+    const q = rObj.quaternion;
+    // применять в world coordinates:
+    placedEntity.object3D.position.copy(p);
+    placedEntity.object3D.quaternion.copy(q);
+    // немного поднять модель над поверхностью (если нужно)
+    placedEntity.object3D.position.y += 0.01;
+  });
+
+  // Rotate / Scale / Remove
+  rotateBtn.addEventListener('click', () => {
+    if (!placedEntity) return alert('Сначала поставьте модель (Place).');
+    const rot = placedEntity.getAttribute('rotation');
+    placedEntity.setAttribute('rotation', `${rot.x} ${rot.y + 20} ${rot.z}`);
+  });
+
+  scaleUpBtn.addEventListener('click', () => {
+    if (!placedEntity) return alert('Сначала поставьте модель (Place).');
+    const s = placedEntity.getAttribute('scale');
+    const nx = (s.x * 1.1).toFixed(3);
+    placedEntity.setAttribute('scale', `${nx} ${nx} ${nx}`);
+  });
+
+  scaleDownBtn.addEventListener('click', () => {
+    if (!placedEntity) return alert('Сначала поставьте модель (Place).');
+    const s = placedEntity.getAttribute('scale');
+    const nx = Math.max(0.01, (s.x / 1.1)).toFixed(3);
+    placedEntity.setAttribute('scale', `${nx} ${nx} ${nx}`);
+  });
+
+  removeBtn.addEventListener('click', () => {
+    if (!placedEntity) return;
+    placedEntity.parentNode.removeChild(placedEntity);
+    placedEntity = null;
+  });
+
+  // Fallback: если WebXR не доступен — позволим тестировать модель в 3D (на экране)
+  (async () => {
+    if (!await isArSupported()) {
+      notice.innerText = 'WebXR immersive-ar не поддерживается. Запуск в режиме эмуляции: разместите модель в центре сцены.';
+      // добавим модель в центр сцены для теста
+      const model = createModelEntity();
+      model.setAttribute('position', '0 0 -1.5');
+      scene.appendChild(model);
+      placedEntity = model;
+      // отключим Enter AR
+      enterBtn.disabled = true;
+    }
+  })();
+
   </script>
 </body>
 </html>
