@@ -2,15 +2,14 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>MindAR + A-Frame со звуком</title>
-
-  <!-- Запрет масштабирования -->
+  <title>MindAR + A-Frame с кнопками вращения</title>
+  <!-- Заблокировать масштабирование -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
-  <!-- MindAR -->
+  <!-- MindAR для A-Frame -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.0/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
@@ -21,7 +20,6 @@
       width: 100%; 
       height: 100%; 
     }
-
     #ui { 
       position: fixed; 
       top: 10px; 
@@ -33,7 +31,6 @@
       padding: 5px 10px; 
       border-radius: 5px;
     }
-
     #buttons {
       position: fixed;
       bottom: 20px;
@@ -43,7 +40,6 @@
       gap: 10px;
       z-index: 10;
     }
-
     button {
       padding: 10px 15px;
       font-size: 16px;
@@ -54,13 +50,11 @@
       cursor: pointer;
       touch-action: manipulation;
     }
-
     button:hover {
       background-color: rgba(0,0,0,0.8);
     }
   </style>
 </head>
-
 <body>
 
 <div id="ui">Наведи камеру на маркер</div>
@@ -72,40 +66,29 @@
   <button onclick="rotateModel('right')">Вправо</button>
 </div>
 
-<a-scene
-  mindar-image="imageTargetSrc: ./assets/target.mind;"
-  color-space="sRGB"
-  renderer="logarithmicDepthBuffer: true; antialias: true;"
-  vr-mode-ui="enabled: false"
-  embedded>
+<!-- ЗВУК -->
+<audio id="lostSound" src="./assets/lost.mp3" preload="auto"></audio>
 
-  <!-- Аудио ассеты -->
-  <a-assets>
-    <audio id="scanAudio" src="./assets/sound.mp3"></audio>
-  </a-assets>
+<a-scene mindar-image="imageTargetSrc: ./assets/target.mind;" 
+         color-space="sRGB" 
+         renderer="logarithmicDepthBuffer: true; antialias: true;" 
+         vr-mode-ui="enabled: false"
+         embedded>
 
-  <!-- Камера -->
+  <!-- Камера MindAR -->
   <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-  <!-- Target -->
+  <!-- Маркерная сущность -->
   <a-entity id="target" mindar-image-target="targetIndex: 0">
-
-    <!-- Звук -->
-    <a-sound id="scanSound"
-             src="#scanAudio"
-             autoplay="false"
-             loop="false">
-    </a-sound>
 
     <!-- Обертка модели -->
     <a-entity id="modelWrapper" position="0 0 0" rotation="90 0 0">
 
-      <!-- Модель -->
-      <a-gltf-model
-        id="model"
-        src="./assets/model.glb"
-        scale="1 1 1"
-        position="0 0 0">
+      <!-- 3D модель -->
+      <a-gltf-model id="model"
+                    src="./assets/model.glb" 
+                    scale="1 1 1" 
+                    position="0 0 0">
       </a-gltf-model>
 
     </a-entity>
@@ -119,50 +102,67 @@
   <script>
     const wrapper = document.querySelector('#modelWrapper');
     const target = document.querySelector('#target');
-    const sound = document.querySelector('#scanSound');
+    const sound = document.querySelector('#lostSound');
 
-    // Поворот модели
+    let wasFound = false;
+
+    // События MindAR
+    target.addEventListener('targetFound', () => {
+      wasFound = true;
+    });
+
+    target.addEventListener('targetLost', () => {
+      if (wasFound) {
+        sound.currentTime = 0;
+        sound.play();
+      }
+    });
+
+    // Поворот модели на 90° по кнопкам
     function rotateModel(direction) {
       const rotation = wrapper.getAttribute('rotation');
 
       switch(direction) {
-        case 'up': rotation.x -= 90; break;
-        case 'down': rotation.x += 90; break;
-        case 'left': rotation.y -= 90; break;
-        case 'right': rotation.y += 90; break;
+        case 'up':
+          rotation.x -= 90;
+          break;
+        case 'down':
+          rotation.x += 90;
+          break;
+        case 'left':
+          rotation.y -= 90;
+          break;
+        case 'right':
+          rotation.y += 90;
+          break;
       }
 
       wrapper.setAttribute('rotation', rotation);
     }
 
-    // События MindAR
-    target.addEventListener('targetFound', () => {
-      console.log('TARGET FOUND');
-      sound.components.sound.playSound();
-    });
-
-    target.addEventListener('targetLost', () => {
-      console.log('TARGET LOST');
-      sound.components.sound.stopSound();
-    });
-
-    // Блокировка зума
+    // Блокировка масштабирования на мобильных
     let lastTouchEnd = 0;
 
-    document.addEventListener('touchstart', e => {
-      if (e.touches.length > 1) e.preventDefault();
+    document.addEventListener('touchstart', function (event) {
+      if (event.touches.length > 1) {
+        event.preventDefault();
+      }
     }, { passive: false });
 
-    document.addEventListener('touchend', e => {
-      if (e.target.closest('button')) return;
-      const now = Date.now();
-      if (now - lastTouchEnd <= 300) e.preventDefault();
+    document.addEventListener('touchend', function (event) {
+      if (event.target.closest('button')) return;
+
+      const now = (new Date()).getTime();
+      if (now - lastTouchEnd <= 300) {
+        event.preventDefault();
+      }
       lastTouchEnd = now;
     }, { passive: false });
 
-    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturestart', function (event) {
+      event.preventDefault();
+    });
   </script>
-
 </a-scene>
 
 </body>
